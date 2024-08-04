@@ -1,0 +1,11 @@
+Pet project projects for learning about topics.
+The goal is to implement topics only using python build in
+functions without relying on dependencies. That means
+the code will not be optimized and is not meant to be run
+in production. Topics I hope to cover include
+
+- Backprop
+- Tokenization
+- syntax parsing
+- auto-complete
+- automatic theorem proving
