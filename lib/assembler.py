@@ -5,47 +5,14 @@ from typing import Tuple, List, Dict
 from enum import Enum
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from lib.utils import pretty_format_dict
+from lib.utils import pretty_format_dict, dec2bin, bin2dec, isInt, print_with_lines
+from lib.utils import binary_flip, binary_and, binary_or, binary_add, binary_neg, WORD_SIZE
 
 CommandType = Enum('CommandType', 
                    ['A_COMMAND', # @symbol
                     'C_COMMAND', # dest=comp;jump
                     'L_COMMAND'] # (symbol)
                   )
-
-WORD_SIZE = 16 # 16 width for hack machine
-
-def dec2bin(dec:int, n_digits:int)->str:
-    # decimal to binary, assume positive
-    ret = []
-    i = 0
-    while i < n_digits and dec > 0:
-        i += 1
-        ret.append(dec % 2)
-        dec //= 2
-    ret += [0] * (n_digits - len(ret))
-    return ''.join(map(str, ret[::-1]))
-
-def bin2dec(b:str)->int:
-    # convert binary number str to dec int
-    ret = 0
-    for s in b:
-        assert s in '01', f'{b} is not binary'
-        ret = 2 * ret + int(s)
-    return ret
-
-def isInt(s:str):
-    try:
-        int(s)
-        return True
-    except:
-        return False
-
-def print_with_lines(x:str):
-    list_txt = x.split('\n')
-    max_len = len(str(len(list_txt)))
-    for i, l in enumerate(list_txt):
-        print(f'{str(i).ljust(max_len+1)}: {l}')
 
 class Code:
     _dest_lists = ['null', 'M', 'D', 'MD', 'A', 'AM', 'AD', 'AMD']
@@ -89,51 +56,39 @@ class Code:
 
         assert comp_code in Code.comp.values()
 
-        def _binary_flip(d:int):
-            b:str = dec2bin(d, WORD_SIZE)
-            return ''.join([('0' if i=='1' else '1') for i in b])
-
-        def _binary_and(a:int, b:int):
-            ab, bb = dec2bin(a, WORD_SIZE), dec2bin(b, WORD_SIZE)
-            return ''.join([('1' if i == j == '1' else '0')for i, j in zip(ab, bb)])
-
-        def _binary_or(a:int, b:int):
-            ab, bb = dec2bin(a, WORD_SIZE), dec2bin(b, WORD_SIZE)
-            return ''.join([('1' if (i == '1' or j == '1') else '0')for i, j in zip(ab, bb)])
-            
-        def _f(A:int, M:int, D:int):
+        def _f(A:int, M:int, D:int)->int:
             'A/D: A/D register value, M: RAM[A] value'
             # TODO: this version doesn't simulate overflow as it can compute value more than 1 word
             # TODO: replace this with a ALU to really simulate the hardware
             mnemonic2output = {
                 '0': 0,
                 '1': 1,
-                '-1': -1,
+                '-1': binary_neg(1, WORD_SIZE),
                 'D': D,
                 'A': A,
-                '!D': _binary_flip(D),
-                '!A': _binary_flip(A),
-                '-D': -D,
-                '-A': -A,
-                'D+1': D+1,
-                'A+1': A+1,
-                'D-1': D-1,
-                'A-1': A-1,
-                'D+A': D+A,
-                'D-A': D-1,
-                'A-D': A-D,
-                'D&A': _binary_and(D, A),
-                'D|A': _binary_or(D, A),
+                '!D': binary_flip(D, WORD_SIZE),
+                '!A': binary_flip(A, WORD_SIZE),
+                '-D': binary_neg(D, WORD_SIZE),
+                '-A': binary_neg(A, WORD_SIZE),
+                'D+1': binary_add(D, 1, WORD_SIZE),
+                'A+1': binary_add(A, 1, WORD_SIZE),
+                'D-1': binary_add(D, binary_neg(1, WORD_SIZE), WORD_SIZE),
+                'A-1': binary_add(A, binary_neg(1, WORD_SIZE), WORD_SIZE),
+                'D+A': binary_add(D, A, WORD_SIZE),
+                'D-A': binary_add(D, binary_neg(A, WORD_SIZE), WORD_SIZE),
+                'A-D': binary_add(A, binary_neg(D, WORD_SIZE), WORD_SIZE),
+                'D&A': binary_and(D, A, WORD_SIZE),
+                'D|A': binary_or(D, A, WORD_SIZE),
                 'M': M,
-                '!M': _binary_flip(M),
-                '-M': -M,
-                'M+1': M+1,
-                'M-1': M-1,
-                'D+M': D+M,
-                'D-M': D-M,
-                'M-D': M-D,
-                'D&M': _binary_and(D, M),
-                'D|M': _binary_or(D, M),
+                '!M': binary_flip(M, WORD_SIZE),
+                '-M': binary_neg(M, WORD_SIZE),
+                'M+1': binary_add(M, 1, WORD_SIZE),
+                'M-1': binary_add(M, binary_neg(1, WORD_SIZE), WORD_SIZE),
+                'D+M': binary_add(D, M, WORD_SIZE),
+                'D-M': binary_add(D, binary_neg(M, WORD_SIZE), WORD_SIZE),
+                'M-D': binary_add(M, binary_neg(D, WORD_SIZE), WORD_SIZE),
+                'D&M': binary_and(D, M, WORD_SIZE),
+                'D|M': binary_or(D, M, WORD_SIZE),
             }
             return mnemonic2output[Code.compCode2mnemonic[comp_code]]
 
@@ -381,8 +336,15 @@ class Assembler:
         self.code = assembly_code
         fstream = StringIO(self.code)
         self.parser = Parser(fstream)
+
         if first_pass:
             self.symbol_table = SymbolTable()        
+
+            # first pass of code: populate symbol table with (xxx)
+            # needed b/c @xxx may refer to labeled symbol
+            while True:
+                ok, _, _ = self.advance(first_pass=True)
+                if not ok: break
         
     def advance(self, first_pass)->Tuple[bool, str, int]:
         'get to the next command, return ok, machine_code, assembly_code_lineno'
@@ -391,10 +353,13 @@ class Assembler:
         if not ok:
             return False, "no more input", ass_lineno
         ct = self.parser.commandType(command)
+        # decode command
         if ct == CommandType.C_COMMAND:
             dest, comp, jump = self.parser.dest(command), self.parser.comp(command), self.parser.jump(command)
+            # execute / write command
             return True, f'111{Code.comp[comp]}{Code.dest[dest]}{Code.jump[jump]}', ass_lineno
         else:
+            # execute / write command
             symbol = self.parser.symbol(command)
             if ct == CommandType.A_COMMAND:
                 if isInt(symbol): # e.g., @128
@@ -403,7 +368,7 @@ class Assembler:
                     address = 0
                     if self.symbol_table.contains(symbol):
                         address = self.symbol_table.getAddress(symbol)
-                    else: # allocate new memory on second pass
+                    else: # allocate new memory on second pass b/c @i can refer to later (symbol)
                         if not first_pass:
                             address = self.free_address
                             self.free_address += 1
@@ -418,11 +383,6 @@ class Assembler:
     def __call__(self, assembly_code:str)->(str, List[int]):
         '''given ass code, return (machine code, corresponding ass_code_linenos)'''
         self.load(assembly_code, first_pass=True)
-        # first pass: populate symbol table with (xxx)
-        # needed b/c @xxx may refer to labeled symbol
-        while True:
-            ok, code, ass_lineno = self.advance(first_pass=True)
-            if not ok: break
                 
         # second pass
         self.load(assembly_code, first_pass=False)

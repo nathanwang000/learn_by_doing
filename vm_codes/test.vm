@@ -5,10 +5,10 @@ function double 0
 	add
 	return
 
-function Sys.init 0
+function Sys.init 1
     // entry point of all functions, like main function
     // argument[0] = 3
-    push constant 3
-    pop argument 0
-    call double 1
-    return // stack[-1] = 6
+    push constant 3 // this becomes the argument for double
+    call double 1 // double takes 1 argument, this informs stack
+    // stack[-1] = 6, no return b/c there's no where to return to
+    pop local 0
