@@ -1,0 +1,14 @@
+function double 0
+	// x * 2, no local variables needed, it expect 1 argument
+	push argument 0
+	push argument 0
+	add
+	return
+
+function Sys.init 0
+    // entry point of all functions, like main function
+    // argument[0] = 3
+    push constant 3
+    pop argument 0
+    call double 1
+    return // stack[-1] = 6

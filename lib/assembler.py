@@ -1,6 +1,11 @@
+import sys
+import os
 from io import StringIO
 from typing import Tuple, List, Dict
 from enum import Enum
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from lib.utils import pretty_format_dict
 
 CommandType = Enum('CommandType', 
                    ['A_COMMAND', # @symbol
@@ -258,7 +263,7 @@ class Parser:
         return o    
 
 class Machine: # hack machine
-    def __init__(self, memory_size=100, max_steps=100, verbose=False):
+    def __init__(self, memory_size:int=100, max_steps:int=100, verbose:bool=False):
         self.memory_size = memory_size
         self.max_steps = max_steps # max runtime allowed
         self.verbose = verbose
@@ -364,11 +369,8 @@ class Machine: # hack machine
         print(f'Program terminated b/c exceeding max step of {self.max_steps}')
 
     def __repr__(self):
-        ret = 'HackMachine(\n'
-        ret += f'{"part":10s}|{"value":10s}\n' + '_' * 21
-        for k, v in self.machine.items():
-            ret += f'\n{k:10s}|{v}'
-        return ret + '\n)'
+        return f'HackMachine(\n{pretty_format_dict(self.machine)}\n)'
+
 
 class Assembler:
 
