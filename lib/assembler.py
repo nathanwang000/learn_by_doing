@@ -479,7 +479,6 @@ if __name__ == '__main__':
     print_with_lines(assembly_example)
     print('='*30)
     
-    
     ### translate assembly to machine code
     ass = Assembler()
     machine_codes, ass_linenos = ass(assembly_example)
@@ -493,9 +492,11 @@ if __name__ == '__main__':
     machine = Machine(verbose=True)
     machine(machine_codes, ass_linenos)
     
-    print('Machine execution')
-    print('='*30)
-    print(machine)
+    print('Symbol table after execution')
     print('='*30)
     print(ass)
+
+    print('Machine status after execution')
+    print('='*30)
+    print(machine)
 
