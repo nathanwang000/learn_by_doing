@@ -12,5 +12,6 @@ function Sys.init 1
     */
     push constant 3 // this becomes the argument for double
     call double 1 // double takes 1 argument, this informs stack
-    // stack[-1] = 6, no return b/c there's no where to return to
+    // stack[-1] = 6
     pop local 0
+    return
