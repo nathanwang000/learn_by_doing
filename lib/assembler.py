@@ -223,7 +223,7 @@ class Machine: # hack machine
         self.max_steps = max_steps # max runtime allowed
         self.verbose = verbose
         
-    def load(self, machine_code, ass_linenos=None):
+    def load(self, machine_code, src_lines=None):
         codes = machine_code.split('\n')
         self.memory_size = max(self.memory_size, len(codes))
         self.machine = {
@@ -234,9 +234,9 @@ class Machine: # hack machine
             'RAM': [0] * self.memory_size,
         }
 
-        if ass_linenos is not None:
-            # useful for debugging to show machine code's corresponding assembly line numbers
-            self.machine['assembly_linenos'] = ass_linenos
+        if src_lines is not None:
+            # useful for debugging to show machine code's corresponding upstream identifier (e.g., assembly line no)
+            self.machine['src_lines'] = src_lines
             
     def _isA(self, command:str):
         # is A command, if False then C command
@@ -259,6 +259,11 @@ class Machine: # hack machine
         return command[-3:]    
         
     def advance(self)->bool:
+        if self.verbose:
+            M = self.machine['RAM']
+            print(f"D: {self.machine['D']}, A: {self.machine['A']},", 
+                  f'M[16:20]: {M[16:20]} (static),', f'M[{M[0]-5}: M[SP]={M[0]}]: f{M[M[0]-5:M[0]]} (stack)')
+        
         ## fetch instruction
         if self.machine['PC'] >= len(self.machine['ROM']):
             # finishes execution
@@ -271,11 +276,9 @@ class Machine: # hack machine
                 log += f'@{bin2dec(command[1:])}'
             else:
                 log += f'{Code.destCode2mnemonic[self._dest(command)]}={Code.compCode2mnemonic[self._comp(command)]};{Code.jumpCode2mnemonic[self._jump(command)]}'
-            if 'assembly_linenos' in self.machine:
-                log += f", assembly_lineno: {self.machine['assembly_linenos'][self.machine['PC']]}"
-                
-            print(f"D: {self.machine['D']}, A: {self.machine['A']},", 
-                  'M[16:20]:', self.machine['RAM'][16:20])
+            if 'src_lines' in self.machine:
+                log += f", src_ref: {self.machine['src_lines'][self.machine['PC']]}"
+
             print(log)
         
         self.machine['PC'] += 1
@@ -310,8 +313,8 @@ class Machine: # hack machine
                 self.machine['PC'] = oldA
         return True
             
-    def __call__(self, machine_code:str, assembly_linenos: List[int]=None):
-        self.load(machine_code, assembly_linenos)
+    def __call__(self, machine_code:str, src_lines: List=None):
+        self.load(machine_code, src_lines)
         steps = 0
         while steps <= self.max_steps:
             if self.verbose:
@@ -330,9 +333,10 @@ class Machine: # hack machine
 class Assembler:
 
     def __init__(self, free_address=16):
-        self.free_address = free_address
+        self.const_free_address = free_address
     
     def load(self, assembly_code:str, first_pass:bool):
+        self.free_address = self.const_free_address
         self.code = assembly_code
         fstream = StringIO(self.code)
         self.parser = Parser(fstream)
@@ -490,13 +494,13 @@ if __name__ == '__main__':
     
     ### execute machine code
     machine = Machine(verbose=True)
-    machine(machine_codes, ass_linenos)
+    machine(machine_codes, src_lines=ass_linenos)
     
     print('Symbol table after execution')
     print('='*30)
     print(ass)
 
-    print('Machine status after execution')
-    print('='*30)
-    print(machine)
+    # print('Machine status after execution')
+    # print('='*30)
+    # print(machine)
 
