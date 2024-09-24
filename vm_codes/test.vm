@@ -7,6 +7,7 @@ function double 0
 
 function Sys.init 1
     /* 
+    Expected result: top of the stack is 6
     entry point of all functions, like main function
     first set argument[0] = 3
     */

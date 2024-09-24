@@ -1,0 +1,6 @@
+function Sys.init 0
+    // Expected result: top of the stack is 5
+    push constant 2
+    push constant 3
+    add
+    return
