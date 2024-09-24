@@ -3,6 +3,7 @@ import os
 from io import StringIO
 from typing import Tuple, List, Dict
 from enum import Enum
+from collections.abc import Callable
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib.utils import pretty_format_dict, dec2bin, bin2dec, isInt, print_with_lines
@@ -56,10 +57,19 @@ class Code:
 
         assert comp_code in Code.comp.values()
 
-        def _f(A:int, M:int, D:int)->int:
+        def _f(getA:Callable[[], int], getM:Callable[[], int], getD:Callable[[], int])->int:
             'A/D: A/D register value, M: RAM[A] value'
             # TODO: this version doesn't simulate overflow as it can compute value more than 1 word
             # TODO: replace this with a ALU to really simulate the hardware
+            mnemonic = Code.compCode2mnemonic[comp_code]
+            A, M, D = 0, 0, 0
+            # only load when needed
+            if 'A' in mnemonic:
+                A = getA()
+            if 'D' in mnemonic:
+                D = getD()
+            if 'M' in mnemonic:
+                M = getM()
             mnemonic2output = {
                 '0': 0,
                 '1': 1,
@@ -90,7 +100,7 @@ class Code:
                 'D&M': binary_and(D, M, WORD_SIZE),
                 'D|M': binary_or(D, M, WORD_SIZE),
             }
-            return mnemonic2output[Code.compCode2mnemonic[comp_code]]
+            return mnemonic2output[mnemonic]
 
         return _f
         
@@ -261,8 +271,8 @@ class Machine: # hack machine
     def advance(self)->bool:
         if self.verbose:
             M = self.machine['RAM']
-            print(f"D: {self.machine['D']}, A: {self.machine['A']},", 
-                  f'M[16:20]: {M[16:20]} (static),', f'M[{M[0]-5}: M[SP]={M[0]}]: {M[M[0]-5:M[0]]} (stack)')
+            print(f"D: {self.machine['D']}, A: {self.machine['A']}, M[16:20]: {M[16:20]} (static), M[ARG]: {M[2]}, M[LCL]: {M[1]}, len(stack): {M[0] - 256}")
+            print(f'stack: {M[256:M[0]]}')
         
         ## fetch instruction
         if self.machine['PC'] >= len(self.machine['ROM']):
@@ -294,7 +304,8 @@ class Machine: # hack machine
 
             ## instruction execution
             # comp: page 67
-            o = Code.compFun(c)(self.machine['A'], self.machine['RAM'][oldA], self.machine['D'])
+            # use lambda so b/c sometimes don't need to getM, so only retrieve when needed
+            o = Code.compFun(c)(lambda: self.machine['A'], lambda: self.machine['RAM'][oldA], lambda: self.machine['D'])
 
             # dest: page 68
             if d[0] == '1':
