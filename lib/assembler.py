@@ -262,7 +262,7 @@ class Machine: # hack machine
         if self.verbose:
             M = self.machine['RAM']
             print(f"D: {self.machine['D']}, A: {self.machine['A']},", 
-                  f'M[16:20]: {M[16:20]} (static),', f'M[{M[0]-5}: M[SP]={M[0]}]: f{M[M[0]-5:M[0]]} (stack)')
+                  f'M[16:20]: {M[16:20]} (static),', f'M[{M[0]-5}: M[SP]={M[0]}]: {M[M[0]-5:M[0]]} (stack)')
         
         ## fetch instruction
         if self.machine['PC'] >= len(self.machine['ROM']):

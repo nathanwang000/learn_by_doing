@@ -1,0 +1,30 @@
+function multNat 0
+	// x * y where x and y are Nat, no local variables needed, it expect 2 argument
+	// return (x-1) * y + y if x > 0 else 0
+	push argument 0 // x
+    push constant 0 // 0
+    // if x > 0, goto inductive case
+    gt
+    if-goto recurse
+    push constant 0
+    return // base case x <= 0
+    label recurse
+        // push (x-1) * y + y
+        push argument 0 // x
+        push constant -1
+        add // x- 1
+        push argument 1 // y
+        call multNat 2 // (x-1) * y
+        push argument 1 // y
+        add
+	return
+
+function Sys.init 0
+    /* 
+    Expected result: top of the stack is 12
+    entry point of all functions, like main function
+    */
+    push constant 3 // x
+    push constant 4 // y
+    call multNat 2 // take 2 arguments
+    return
