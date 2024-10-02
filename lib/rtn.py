@@ -270,7 +270,7 @@ def addSem(f: RTN, sem: Callable[Tuple, Tuple]) -> RTN:  # semantics
         if len(srnms) == 0:
             return srnms
 
-        return {(s, sem(r), n, m) for s, r, n, m in srnms}
+        return {RTN_UNIT(s, sem(r), n) for s, r, n in srnms}
 
     return _f
 
