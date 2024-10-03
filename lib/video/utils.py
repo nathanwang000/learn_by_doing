@@ -137,6 +137,7 @@ def crop_img(img:np.array, crop_rate:CropRate, pixel:int=None)->np.array:
     return resize(img, (pixel,pixel))[..., :3]
   return img[...,:3]
 
+### Movie.py convinient functions ###
 def video_clip_add(self, other):
     if isinstance(other, VideoClip):
         return CompositeVideoClip([self, other])
@@ -155,11 +156,24 @@ def video_clip_mul(self, other):
 
 def clip_getitem(self, key):
     if isinstance(key, slice):
-        start, stop, step = key.indices(math.ceil(self.duration))
-        start, stop = max(min(start, stop), 0), min(max(start, stop), self.duration)
+        
+        start, stop, step = key.start, key.stop, key.step
+        if sum(type(i) not in [None, int] for i in (start, stop, step)) == 0:
+            # std way only accept int 
+            start, stop, step = key.indices(math.ceil(self.duration))
+        else:
+            max_len = self.duration
+            start = start if start is not None else 0
+            stop = stop if stop is not None else 0
+            step = step if step is not None else 1
+            start = min(start, max_len) if start >= 0 else max(max_len + start, 0)
+            stop = min(stop, max_len) if stop >= 0 else max(max_len + stop, 0)
+        
         if step > 0:
+            assert stop > start, f"video[{stop}:{start}:{step}] invalid"
             return self.subclip(start, stop)
         else: # reverse the video
+            assert stop < start, f"video[{stop}:{start}:{step}] invalid"
             return self.subclip(start, stop).fx(vfx.time_mirror).set_duration(stop-start)
     elif isinstance(key, tuple):
         raise NotImplementedError('Tuple as index')
@@ -167,7 +181,7 @@ def clip_getitem(self, key):
         raise NotImplementedError('Indexing not implemented')
 
 def clip_len(self):
-    return self.duration
+    return int(math.ceil(self.duration))
 
 def audio_add(self, other):
     if isinstance(other, AudioClip):
@@ -192,6 +206,7 @@ VideoClip.__mul__ = video_clip_mul
 AudioClip.__add__ = audio_add
 AudioClip.__mul__ = audio_mul
 Clip.__getitem__ = clip_getitem
+Clip.__len__ = clip_len
 Clip.play = lambda self, *args, **kwargs: self.ipython_display(*args, maxduration=self.duration+1, **kwargs)
 VideoClip.save = lambda self, save_path, *args, **kwargs: self.write_videofile(save_path, *args,
                                                                                audio_codec='aac',  **kwargs)
