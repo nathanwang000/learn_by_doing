@@ -15,6 +15,10 @@ from PIL import Image
 from typing import Union
 from dataclasses import dataclass
 
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.rcParams['text.latex.preamble']=r"\usepackage{amsmath}"
+
 def get_image_clip(image_fn, ideal_w=1920, ideal_h=1080, duration=24, fps=1, show=False):
     '''
     will align on image to fit ideal_w and ideal_h size
@@ -66,15 +70,11 @@ def wrap_text(text, char_limit):
     # Flatten and join
     return '\n'.join(line for sublist in wrapped_lines for line in sublist)
 
-import nltk
-import matplotlib
-import matplotlib.pyplot as plt
-matplotlib.rcParams['text.latex.preamble']=r"\usepackage{amsmath}"
-
-from nltk.tokenize import sent_tokenize
-nltk.download('punkt')  # Downloading the Punkt Tokenizer models
-
 def sentences_to_lines(text):
+    import nltk
+    from nltk.tokenize import sent_tokenize
+    nltk.download('punkt')  # Downloading the Punkt Tokenizer models
+
     sentences = sent_tokenize(text)
     return '\n'.join(sentences)
 
@@ -148,7 +148,7 @@ def video_clip_add(self, other):
 
 def video_clip_mul(self, other):
     if isinstance(other, VideoClip) or isinstance(other, AudioClip):
-            return concatenate_videoclips([self, other])
+        return concatenate_videoclips([self, other])
     elif isinstance(other, float) or isinstance(other, int):
         return self.loop(duration=self.duration * other)
     else:
@@ -201,13 +201,20 @@ def audio_mul(self, other):
     else:
         raise TypeError(f'Audio can only be multiplied by Audio, Video, or a scalar, not {type(other)}')
 
+def clip_play(self, *args, **kwargs):
+    if hasattr(self, 'filename') and self.filename.endswith('.mid'):
+        play_midi(self.filename)
+        return 
+    return self.ipython_display(*args, maxduration=self.duration+1, **kwargs)
+    
+    
 VideoClip.__add__ = video_clip_add
 VideoClip.__mul__ = video_clip_mul
 AudioClip.__add__ = audio_add
 AudioClip.__mul__ = audio_mul
 Clip.__getitem__ = clip_getitem
-Clip.__len__ = clip_len
-Clip.play = lambda self, *args, **kwargs: self.ipython_display(*args, maxduration=self.duration+1, **kwargs)
+# Clip.__len__ = clip_len
+Clip.play = clip_play
 VideoClip.save = lambda self, save_path, *args, **kwargs: self.write_videofile(save_path, *args,
                                                                                audio_codec='aac',  **kwargs)
 AudioClip.save = lambda self, save_path, *args, **kwargs: self.write_audiofile(save_path, *args, **kwargs)
@@ -304,6 +311,33 @@ def txt_audio_video(message, audio_path,
     if save_path is not None:
         video.write_videofile(save_path, fps=24)
     return video
+
+### audio utilities
+def play_midi(midi_file, soundfont_file=f"{os.path.dirname(__file__)}/../../soundfonts/CT2MGM.SF2"):
+    """Plays a MIDI file using FluidSynth."""
+    import mido
+    import fluidsynth
+    # Initialize FluidSynth
+    fs = fluidsynth.Synth()
+    fs.start()
+
+    # Load the soundfont
+    sfid = fs.sfload(soundfont_file)
+    fs.program_select(0, sfid, 0, 0)  # Channel 0, bank 0, preset 0
+
+    # Open the MIDI file
+    mid = mido.MidiFile(midi_file)
+
+    # Play the MIDI file
+    for msg in mid.play():
+        if msg.type == 'note_on':
+            fs.noteon(msg.channel, msg.note, msg.velocity)
+        elif msg.type == 'note_off':
+            fs.noteoff(msg.channel, msg.note)
+
+    # Cleanup
+    fs.delete()
+
 
 if __name__ == '__main__':
     # https://zulko.github.io/moviepy/getting_started/working_with_matplotlib.html
