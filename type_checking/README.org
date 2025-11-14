@@ -1,4 +1,14 @@
 https://www.youtube.com/watch?v=3nGBnXUGxaY
 
+https://dmitrysoshnikov.teachable.com/courses/typechecker/lectures/41218116
+
 build type checker from scratch
 
+Type environment: a mapping from variable names to their types
+
+It needs to be able to handle different scopes.
+
+The environment should handle
+- variable definitions
+- variable lookups
+- setting variable types
