@@ -2,6 +2,9 @@ import re
 import parseEva
 
 class Type:
+    '''
+    represents a type in eva language 
+    '''
     def __init__(self, name):
         self.name = name
 
@@ -25,8 +28,10 @@ class Type:
         raise Exception(f'Unknown type: "{typeString}"')
 
 
+# built-in types
 Type.number = Type('number')
 Type.string = Type('string')
+Type.boolean = Type('boolean')
 
 class TypeEnvironment:
     '''
@@ -66,6 +71,9 @@ class EvaTC:
     def _isString(self, exp):
         return isinstance(exp, str) and (exp.startswith('"') and exp.endswith('"'))
 
+    def _isBoolean(self, exp):
+        return exp in ['true', 'false']
+
     def tc(self, exp, env: TypeEnvironment=None):
         '''type checks an expression
 
@@ -83,13 +91,19 @@ class EvaTC:
         number
         >>> eva.tc(['set', 'x', 20])
         number
+        >>> eva.tc('true')
+        boolean
         '''
         if env is None: env = self.global_env
         
         if self._isNumber(exp):
             return Type.number
+        
         if self._isString(exp):
             return Type.string
+        
+        if self._isBoolean(exp):
+            return Type.boolean
 
         # math operations
         if self._isBinaryOp(exp):
@@ -97,7 +111,7 @@ class EvaTC:
 
         # variable declaration e.g., (var x, 10)
         # with type check (var (x number) 'foo') # should raise type error
-        if isinstance(exp, list) and exp[0] == 'var':
+        if self._isOperand('var', exp):
             self._checkArity(exp, 2)
             var_name = exp[1]
             var_value = exp[2]
@@ -118,7 +132,7 @@ class EvaTC:
             return env.lookup(exp)
 
         # (set x 10)
-        if isinstance(exp, list) and exp[0] == 'set':
+        if self._isOperand('set', exp):
             self._checkArity(exp, 2)
             var_name = exp[1]
             var_value = exp[2]
@@ -128,22 +142,46 @@ class EvaTC:
         
         # block: sequence of expressions
         # (begin (var x 10) (var y 20) (+ x y))
-        if (isinstance(exp, list) and exp[0] == 'begin'):
-            return self._tcBlock(exp, env)
+        if self._isOperand('begin', exp):
+            block_env = TypeEnvironment({}, parent=env)            
+            return self._tcBlock(exp, block_env)
+
+        # if expression: branches must have same type to type check w/o running
+        if self._isOperand('if', exp):
+            self._checkArity(exp, 3)
+            cond_type = self.tc(exp[1], env)
+            self._expect(cond_type, Type.boolean, exp[1], exp)
+            then_type = self.tc(exp[2], env)
+            else_type = self.tc(exp[3], env)
+            return self._expect(then_type, else_type, exp, exp)
+
+        # comparison operators: <, >, <=, >=, ==, !=
+        if self._isOperand(['<', '>', '<=', '>=', '==', '!='], exp):
+            self._checkArity(exp, 2)
+            t1 = self.tc(exp[1], env)
+            t2 = self.tc(exp[2], env)
+            self._expect(t2, t1, exp[2], exp)
+            return Type.boolean
         
         raise Exception(f'Unknown expression type: "{exp}"')
 
     def _tcBlock(self, exp, env):
-        block_env = TypeEnvironment({}, parent=env)
         result_type = None
         for sub_exp in exp[1:]:
-            result_type = self.tc(sub_exp, block_env)
+            result_type = self.tc(sub_exp, env)
             # debug
             # print(sub_exp, '=>', result_type)
-            # print('env', block_env.env, 'parent', block_env.parent.env if block_env.parent else None)
+            # print('env', env, 'parent', env.parent.env if env.parent else None)
             
         return result_type
-        
+
+    def _isOperand(self, op_name: str | list[str], exp):
+        if isinstance(op_name, str):
+            return isinstance(exp, list) and len(exp) > 0 and exp[0] == op_name
+        elif isinstance(op_name, list):
+            return isinstance(exp, list) and len(exp) > 0 and exp[0] in op_name
+        return False
+    
     def _isVariableName(self, exp)->bool:
         return isinstance(exp, str) and re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', exp)
         
@@ -158,7 +196,7 @@ class EvaTC:
         
         return self._expect(t2, t1, exp[2], exp)
 
-    def _expctOperatorType(self, actualType, allowedTypes, exp):
+    def _expctOperatorType(self, actualType: Type, allowedTypes: list[Type], exp):
         if actualType not in allowedTypes:
             raise Exception(f'Type error: expected one of "{allowedTypes}", got "{actualType}" in expression "{exp}"')
         
@@ -193,6 +231,10 @@ def exec(eva, exp):
         # add (begin ...) to make it a block so that globally I can just write
         # a sequence of expressions
         exp = parseEva.parse(f'(begin {exp})')
+
+        # but now all sequence of expressions should be executed a global scope
+        return eva._tcBlock(exp, eva.global_env)
+
     return eva.tc(exp)
 
 def test(eva, exp, expected_type):
@@ -260,6 +302,25 @@ if __name__ == '__main__':
     # parsing
     test(eva, '(var x 10) (var y 20)', Type.number)
     test(eva, '(begin (var x 10) (+ x 20))', Type.number)
+    # test(eva, '(var x 10) (set x "hello")', Type.string)
+
+    # control flow
+    test(eva,
+         '''
+         (var x 10)
+         (var y 20)
+         (if (< x 10)
+             (set y 1)
+             (set y 2))
+         y
+         ''',
+            Type.number
+         )
+
+    # print(parseEva.parse('(begin (var x 10) (var y 20))'))
+
+    # introduce a list expression
+    # print(parseEva.parse('(var x (list 1 2 3))')) # ['var', 'x', ['list', 1, 2, 3]]
     
     print("All tests passed.")
 

@@ -1,4 +1,4 @@
-from rtn import RTN, EMPTY, handle_error, push, cast, addSem, pop, ERROR
+from rtn import RTN, EMPTY, handle_error, push, cast, addSem, pop, ERROR, replace
 from tokenizer import Tokenizer, TokenSpec, Token
 '''
 example eva program
@@ -24,6 +24,9 @@ eva_token_spec = [
     ('SYMBOL',   r'[\w\+\-\*\/=<>]+'),    # Identifiers
     ('LPAREN',   r'\('),           # Left Parenthesis
     ('RPAREN',   r'\)'),           # Right Parenthesis
+    # '[1, 2, 3]' some native list syntax
+    ('LBRACKET', r'\['),           # Left Bracket
+    ('RBRACKET', r'\]'),           # Right Bracket
     ]
 
 # try running rtn to match empty string or 'a'
@@ -56,13 +59,14 @@ def ListEntries(s, r):
 List = LPAREN * ListEntries * RPAREN
 Exp = Atom + List
 
-def parse(src: str):
+def parse(src: str, rtn: RTN = Exp):
     tokenizer = Tokenizer([TokenSpec(name, pattern) for name, pattern in eva_token_spec])
     tokens = list(tokenizer.tokenize(src))
-    s, r = Exp(tokens, [])
-    if (s, r) == ERROR:
+    s, r = rtn(tokens, [])
+    if (s, r) == ERROR or s != [] or len(r) == 0:
         raise SyntaxError('Parsing error')
     return r[-1]
+
 
 def main():
     # example using NUMBER
