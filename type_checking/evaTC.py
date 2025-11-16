@@ -24,14 +24,73 @@ class Type:
         '''
         if hasattr(cls, typeString):
             return getattr(cls, typeString)
+        if typeString.startswith('Fn'):
+            # delegate to FunctionType fromString parser
+            return FunctionType.fromString(typeString)
 
         raise Exception(f'Unknown type: "{typeString}"')
 
+class FunctionType(Type):
+    '''
+    represents a function type in eva language 
+    e.g., (number, number) -> number
+
+    >>> FunctionType([Type.number, Type.number], Type.number)
+    Fn[(number, number) -> number]
+    '''
+    def __init__(self, param_types: list[Type], return_type: Type):
+        super().__init__(name=None)
+        self.param_types = param_types
+        self.return_type = return_type
+        self.name = str(self)
+
+    def __eq__(self, other):
+        return isinstance(other, FunctionType) and self.name == other.name
+
+    def __repr__(self):
+        if self.name: return self.name
+        param_types_str = ', '.join([str(t) for t in self.param_types])
+        return f'Fn[({param_types_str}) -> {self.return_type}]'
+
+    @classmethod
+    def fromString(cls, typeString: str):
+        '''
+        parse a function type string and return a FunctionType instance
+
+        >>> FunctionType.fromString('Fn[(number, number) -> number]')
+        Fn[(number, number) -> number]
+
+        nested function type: currently not supported, need a full parser
+        the parser can be
+        Type := 'number' | 'string' | 'boolean' | FType
+        FType := 'Fn[' '(' Types ')' '->' Type ']'
+        Types := Type ',' Types | Type | ε
+
+        TODO: FunctionType.fromString('Fn[(number, Fn[(number) -> number]) -> number]')
+        '''
+        pattern = r'^Fn\[\((.*?)\)\W*->\W*(.*?)\]$'
+        match = re.match(pattern, typeString)
+        if not match:
+            raise Exception(f'Invalid function type string: "{typeString}"')
+
+        param_types_str = match.group(1)
+        return_type_str = match.group(2)
+
+        param_types = []
+        if param_types_str.strip():
+            param_type_names = [t.strip() for t in param_types_str.split(',')]
+            for type_name in param_type_names:
+                param_types.append(Type.fromString(type_name))
+
+        return_type = Type.fromString(return_type_str.strip())
+
+        return cls(param_types, return_type)
 
 # built-in types
 Type.number = Type('number')
 Type.string = Type('string')
 Type.boolean = Type('boolean')
+Type.Function = FunctionType
 
 class TypeEnvironment:
     '''
@@ -139,6 +198,28 @@ class EvaTC:
             var_type = self.tc(var_name, env)
             value_type = self.tc(var_value, env)
             return self._expect(value_type, var_type, var_value, exp)
+
+        # arithmatic syntactical sugar
+        # (+= x 10) := (set x (+ x 10))
+        if self._isOperand(['+=', '-=', '*=', '/='], exp):
+            self._checkArity(exp, 2)
+            var_name = exp[1]
+            var_value = exp[2]
+            op = exp[0][0]
+            # transform to (set var_name (op var_name var_value)) and type check
+            set_exp = ['set', var_name, [op, var_name, var_value]]
+            return self.tc(set_exp, env)
+
+        # increment/decrement syntactical sugar
+        # (++ x) := (set x (+ x 1))
+        if self._isOperand(['++', '--'], exp):
+            self._checkArity(exp, 1)
+            var_name = exp[1]
+            op = exp[0][0]
+            value = 1 if op == '+' else -1
+            # transform to (set var_name (+ var_name 1)) and type check
+            set_exp = ['set', var_name, ['+', var_name, value]]
+            return self.tc(set_exp, env)
         
         # block: sequence of expressions
         # (begin (var x 10) (var y 20) (+ x y))
@@ -147,13 +228,27 @@ class EvaTC:
             return self._tcBlock(exp, block_env)
 
         # if expression: branches must have same type to type check w/o running
+        # env |- cond : boolean, env |- then_branch : T, env |- else_branch : T
+        # -------------------------------
+        # env |- (if cond then_branch else_branch) : T
         if self._isOperand('if', exp):
             self._checkArity(exp, 3)
             cond_type = self.tc(exp[1], env)
             self._expect(cond_type, Type.boolean, exp[1], exp)
             then_type = self.tc(exp[2], env)
             else_type = self.tc(exp[3], env)
-            return self._expect(then_type, else_type, exp, exp)
+            return self._expect(else_type, then_type, exp[3], exp)
+
+        # while loop: condition must be boolean
+        # env |- cond : boolean, env |- body : T
+        # -------------------------------
+        # env |- (while cond body) : T
+        if self._isOperand('while', exp):
+            self._checkArity(exp, 2)
+            cond_type = self.tc(exp[1], env)
+            self._expect(cond_type, Type.boolean, exp[1], exp)
+            body_type = self.tc(exp[2], env)
+            return body_type
 
         # comparison operators: <, >, <=, >=, ==, !=
         if self._isOperand(['<', '>', '<=', '>=', '==', '!='], exp):
@@ -162,9 +257,40 @@ class EvaTC:
             t2 = self.tc(exp[2], env)
             self._expect(t2, t1, exp[2], exp)
             return Type.boolean
+
+        # function definition
+        if self._isOperand('def', exp):
+            self._checkArity(exp, 5)
+            _, fn_name, param_list, return_arrow, return_type_str, fn_body = exp
+            if return_arrow != '->':
+                raise Exception(f'Syntax error: expected "->" in function definition "{exp}"')
+            return env.define(fn_name, self._tcFunction(param_list, return_type_str, fn_body, env))
         
         raise Exception(f'Unknown expression type: "{exp}"')
 
+    def _tcFunction(self, param_list, return_type_str, fn_body, env)->FunctionType:
+        # parse param_list
+        param_types = []
+        param_names = []
+        for param in param_list:
+            self._checkArity(param, 1)
+            param_name = param[0]
+            param_type = Type.fromString(param[1])
+            param_names.append(param_name)
+            param_types.append(param_type)
+
+        return_type = Type.fromString(return_type_str)
+
+        # create a new environment for function body
+        fn_env = TypeEnvironment({}, parent=env)
+        for param_type, param_name in zip(param_types, param_names):
+            fn_env.define(param_name, param_type)
+
+        body_type = self.tc(fn_body, fn_env)
+        self._expect(body_type, return_type, fn_body, fn_body)
+
+        return FunctionType(param_types, return_type)
+    
     def _tcBlock(self, exp, env):
         result_type = None
         for sub_exp in exp[1:]:
@@ -216,7 +342,7 @@ class EvaTC:
         return actualType
 
     def _throw(self, actualType, expectedType, value, exp):
-        raise Exception(f'Type error: expected "{expectedType}", got "{actualType}" for value "{value}" in expression "{exp}"')
+        raise Exception(f'Type error: expected `{expectedType}` for value `{value}` in expression `{exp}`, but got `{actualType}`')
     
     def _isBinaryOp(self, exp)->bool:
         return isinstance(exp, list) and exp[0] in ['+', '-', '*', '/']
@@ -305,19 +431,55 @@ if __name__ == '__main__':
     # test(eva, '(var x 10) (set x "hello")', Type.string)
 
     # control flow
+    test(eva, 'true', Type.boolean)
+    test(eva, 'false', Type.boolean)
+    # test(eva, '(< "hello" x)', Type.boolean)
     test(eva,
          '''
          (var x 10)
          (var y 20)
          (if (< x 10)
-             (set y 1)
-             (set y 2))
+           2
+           1)
          y
          ''',
             Type.number
          )
 
-    # print(parseEva.parse('(begin (var x 10) (var y 20))'))
+    # while loop
+    test(eva,
+         '''
+         (var x 0)
+         (var sum 0)
+         (begin
+           (set sum 0)
+           (while (!= x 10)
+             (begin
+               #syntactical sugar: (+= sum x) := (set sum (+ sum x))
+               (+= sum x)
+               # (++ x) := (set x (+ x 1))
+               (++ x)
+             )
+           )
+         )
+         sum
+         ''',
+         Type.number
+         )
+
+    # function
+    test(eva,
+         '''
+         (def sq ((x number)) -> number (* x x))
+         ''', Type.fromString('Fn[(number) -> number]'))
+
+    # function call
+    # test(eva,
+    #      '''
+    #      (sq 5)
+    #      ''', Type.number)
+    
+    # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 
     # introduce a list expression
     # print(parseEva.parse('(var x (list 1 2 3))')) # ['var', 'x', ['list', 1, 2, 3]]
