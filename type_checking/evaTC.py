@@ -145,6 +145,9 @@ class TypeEnvironment:
             return self.parent.lookup(varname)
         else:
             raise Exception(f'Undefined variable: "{varname}"')
+
+    def __repr__(self):
+        return f'TypeEnvironment({self.env})'
         
     
 class EvaTC:
@@ -154,8 +157,13 @@ class EvaTC:
     def __init__(self):
         self.global_env = TypeEnvironment({
             'VERSION': Type.string,
+            'math.pi': Type.number,
+            'math.sin': Type.fromString('Fn[(number) -> number]'),
         })
-        
+
+    def __repr__(self):
+        return f'EvaTC(global_env={self.global_env})'
+    
     def _isNumber(self, exp):
         return isinstance(exp, int) or isinstance(exp, float)
 
@@ -290,16 +298,33 @@ class EvaTC:
             self._expect(t2, t1, exp[2], exp)
             return Type.boolean
 
-        # function definition
+        # function definition: e.g., (def sq ((x number)) -> number (* x x))
         if self._isOperand('def', exp):
             self._checkArity(exp, 5)
             _, fn_name, param_list, return_arrow, return_type_str, fn_body = exp
             if return_arrow != '->':
                 raise Exception(f'Syntax error: expected "->" in function definition "{exp}"')
             return env.define(fn_name, self._tcFunction(param_list, return_type_str, fn_body, env))
+
+        # function call: e.g. (sq 2)
+        if isinstance(exp, list):
+            return self._tcFunctionCall(exp, env)
         
         raise Exception(f'Unknown expression type: "{exp}"')
 
+    def _tcFunctionCall(self, exp, env)->Type:
+        fn_type = self.tc(exp[0], env)
+        if not isinstance(fn_type, FunctionType):
+            raise Exception(f'Type error: expected a function type for "{exp[0]}", but got "{fn_type}" in expression "{exp}"')
+        self._checkArity(exp, len(fn_type.param_types))
+        # check arg types
+        args = exp[1:]        
+        arg_types = [self.tc(arg, env) for arg in args]
+        for actual_type, expected_type, arg in zip(arg_types,
+                                                   fn_type.param_types, args):
+            self._expect(actual_type, expected_type, arg, exp)
+        return fn_type.return_type
+    
     def _tcFunction(self, param_list, return_type_str, fn_body, env)->FunctionType:
         # parse param_list
         param_types = []
@@ -341,7 +366,7 @@ class EvaTC:
         return False
     
     def _isVariableName(self, exp)->bool:
-        return isinstance(exp, str) and re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', exp)
+        return isinstance(exp, str) and re.match(r'^[a-zA-Z_][a-zA-Z0-9_\.]*$', exp)
         
     def _binary(self, exp, env)->Type:
         self._checkArity(exp, 2)
@@ -506,10 +531,16 @@ if __name__ == '__main__':
          ''', Type.fromString('Fn[(number) -> number]'))
 
     # function call
-    # test(eva,
-    #      '''
-    #      (sq 5)
-    #      ''', Type.number)
+    test(eva,
+         '''
+         (sq 5)
+         ''', Type.number)
+
+    # test built in function: say math.sin
+    test(eva,
+         '''
+           (math.sin 3.14)
+           ''', Type.number)
     
     # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 

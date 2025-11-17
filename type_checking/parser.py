@@ -75,7 +75,7 @@ class EvaParser(Parser):
             ('NUMBER', r'\d+(\.\d*)?'),  # Integer or decimal number
             ('STRING', r'"[^"\\]*"'),  # String literal
             # symbol: word or + - * / = < >
-            ('SYMBOL', r'[\w\+\-\*\/=<>!,]+'),  # Identifiers
+            ('SYMBOL', r'[\w\+\-\*\/=<>!,\.]+'),  # Identifiers
             ('LPAREN', r'\('),  # Left Parenthesis
             ('RPAREN', r'\)'),  # Right Parenthesis
             # '[1, 2, 3]' some native list syntax
