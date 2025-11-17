@@ -1,5 +1,5 @@
 import re
-import parseEva
+import parser
 
 class Type:
     '''
@@ -66,7 +66,39 @@ class FunctionType(Type):
         FType := 'Fn[' '(' Types ')' '->' Type ']'
         Types := Type ',' Types | Type | ε
 
-        TODO: FunctionType.fromString('Fn[(number, Fn[(number) -> number]) -> number]')
+        >>> FunctionType.fromString('Fn[(number, Fn[(number) -> number]) -> number]')
+        Fn[(number, Fn[(number) -> number]) -> number]
+        '''
+        exp = parser.EvaFunctionStringParser.parse(typeString)
+        # exp looks like {'name': 'Fn', 'args': ['number', {'name': 'Fn', 'args': ['string'], 'return_type': 'boolean'}], 'return_type': 'string'}
+
+        def str2type(t):
+            if isinstance(t, str):
+                return Type.fromString(t)
+            elif isinstance(t, dict) and t.get('name') == 'Fn':
+                # nested function type
+                return cls([str2type(arg) for arg in t['args']],
+                           str2type(t['return_type']))
+            else:
+                raise Exception(f'Invalid type representation: "{t}"')
+            
+        return str2type(exp)
+    
+    @classmethod
+    def fromStringSimple(cls, typeString: str):
+        '''
+        parse a function type string and return a FunctionType instance
+
+        >>> FunctionType.fromStringSimple('Fn[(number, number) -> number]')
+        Fn[(number, number) -> number]
+
+        nested function type: not supported for simple
+        the parser can be
+        Type := 'number' | 'string' | 'boolean' | FType
+        FType := 'Fn[' '(' Types ')' '->' Type ']'
+        Types := Type ',' Types | Type | ε
+
+        e.g., cannot handle FunctionType.fromString('Fn[(number, Fn[(number) -> number]) -> number]')
         '''
         pattern = r'^Fn\[\((.*?)\)\W*->\W*(.*?)\]$'
         match = re.match(pattern, typeString)
@@ -356,7 +388,7 @@ def exec(eva, exp):
     if isinstance(exp, str):
         # add (begin ...) to make it a block so that globally I can just write
         # a sequence of expressions
-        exp = parseEva.parse(f'(begin {exp})')
+        exp = parser.EvaParser.parse(f'(begin {exp})')
 
         # but now all sequence of expressions should be executed a global scope
         return eva._tcBlock(exp, eva.global_env)
