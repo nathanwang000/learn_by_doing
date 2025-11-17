@@ -45,7 +45,7 @@ class Parser:
         s, r = rtn(tokens, [])
         if s is None or s != [] or len(r) == 0:
             raise SyntaxError(
-                f'Parsing error:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}'
+                f'Parsing error in parsing {[_c.value for _c in tokens]}:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}'
             )
         return r.pop()
 
@@ -201,8 +201,7 @@ def main():
     # print(Atom([Token('NUMBER', '10')], []))
     # tokens = list(tokenizer.tokenize('(a b c)'))
 
-    # src = '(begin (var x 10) (+ x 2)) # this is a comment\n'
-    src = '('
+    src = '(begin (var x 10) (+ x 2)) # this is a comment\n'
     print('Source:', src)
 
     result = EvaParser.parse(src)
