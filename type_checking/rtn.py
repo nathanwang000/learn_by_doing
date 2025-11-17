@@ -11,20 +11,10 @@ Maybe in future version we can add backtracking to handle such cases. Like using
 """
 
 import re
-
-from functools import wraps
 from collections import defaultdict
 from collections.abc import Iterable
+from functools import wraps
 from typing import Callable
-
-VERBOSE = False
-
-class Node:
-    def __init__(self, val, args=[]):
-        self.__dict__.update({k: v for k, v in locals().items() if k != "self"})
-
-    def __repr__(self):
-        return f"Node({self.val}, {self.args})"
 
 
 class RTN:
@@ -32,11 +22,11 @@ class RTN:
     general parser
 
     input:
-      s: str
+      s: list[token]
       r: semantic stack
 
     output:
-      s: str
+      s: list[token]
       r: semantic stack
     """
 
@@ -58,6 +48,7 @@ class RTN:
 
 
 def to_rtn(f):  # make function result an RTN
+
     @wraps(f)
     def _f(*args, **kwargs):
         return RTN(f(*args, **kwargs))
@@ -65,19 +56,18 @@ def to_rtn(f):  # make function result an RTN
     return _f
 
 
-ERROR = (None, None)
-
-
 def is_error(e):
-    return e[0] is None or e[1] is None
+    return e[0] is None
 
 
 def recursive_tuple(iterable):
     # convert iterable to nested tuple
     # frst check it is iterable, if not just return as is
-    if isinstance(iterable, Iterable) and not isinstance(iterable, (str, bytes)):
+    if isinstance(iterable,
+                  Iterable) and not isinstance(iterable, (str, bytes)):
         return tuple(recursive_tuple(i) for i in iterable)
     return iterable
+
 
 def handle_left_recursion(f):
     "if seen and not computable automatically fail"
@@ -90,9 +80,7 @@ def handle_left_recursion(f):
         if args in mem:
             return mem[args]
         if seen[args] >= 2:
-            if VERBOSE:
-                print(f"left recursion detected in {f} with s={s}, r={r}")
-            return ERROR
+            return None, [f"left recursion detected in {f} with s={s}, r={r}"]
         seen[args] += 1
         res = f(s, r)
         mem[args] = res
@@ -100,21 +88,23 @@ def handle_left_recursion(f):
 
     return _f
 
+
 def handle_error(note=None):
     """decorator to handle errors in RTN functions"""
+
     def handler(f):
+
         @wraps(f)
         def _f(s, r):
             try:
                 s, r = f(s, r)
                 return s, r
-            except:
+            except Exception as e:
                 error_note = f"`{note}`" if note else f"{f}"
-                if VERBOSE:
-                    print(f"error in {error_note} with s={s}, r={r}")
-                return ERROR
+                return None, [f"error in {error_note} with s={s}, r={r}: {e}"]
 
         return _f
+
     return handler
 
 
@@ -125,10 +115,11 @@ def ID(s, r):
 
 @to_rtn
 def product(a, b):  # compose
+
     def _f(s, r):
         sr = a(s, r)
         if is_error(sr):
-            return ERROR
+            return sr
         s, r = sr
         return b(s, r)
 
@@ -137,6 +128,7 @@ def product(a, b):  # compose
 
 @to_rtn
 def coproduct(a, b):  # or
+
     def _f(s, r):
         sr = a(s, r)
         if not is_error(sr):
@@ -152,10 +144,13 @@ def addSem(f: RTN, sem: Callable):  # semantics
 
     assert callable(sem), f"{sem} must be callable"
     assert isinstance(f, RTN), f'f must be of type RTN but got {type(f)}'
-    
+
     @handle_error(f'addSem({f}, {sem})')
     def _f(s, r):
-        s, r = f(s, r)
+        sr = f(s, r)
+        if is_error(sr):
+            return sr
+        s, r = sr
         return s, sem(r)
 
     return _f
@@ -188,43 +183,53 @@ def C_regex(a):
     return _f
 
 
-def C(x)->RTN:
+def C(x) -> RTN:
     # return consumer(lambda a: re.match("^" + x + "$", a))
     # the later is more interpretable in error messages
     return C_regex("^" + x + "$")
 
+
 EMPTY = RTN(lambda s, r: (s, r))  # match empty string
 
+
 # auxiliary semantic stack operations
-def push(symbol, rtn)->RTN:
+def push(symbol, rtn) -> RTN:
     assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'
     return addSem(rtn, lambda r: r + [symbol])
 
-def replace(symbol, rtn)->RTN:
-    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'    
+
+def replace(symbol, rtn) -> RTN:
+    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'
     return addSem(rtn, lambda r: r[:-1] + [symbol])
 
-def cast(f, rtn)->RTN:
+
+def cast(f, rtn) -> RTN:
     '''f must be callable'''
     assert callable(f), f"{f} must be callable"
-    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'    
+    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'
     return addSem(rtn, lambda r: r[:-1] + [f(r[-1])])
 
-def pop(rtn)->RTN:
+
+def pop(rtn) -> RTN:
     '''pop the semantic stack'''
-    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'    
+    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'
     return addSem(rtn, lambda r: r[:-1])
 
-def Star(rtn)->RTN:
+
+def Star(rtn) -> RTN:
     '''
     zero or more repetitions of rtn
 
     >>> Star(C('a'))(list('aaab'), [])
     (['b'], ['a', 'a', 'a'])
+    >>> Star(C('a'))(list('bbb'), [])
+    (['b', 'b', 'b'], [])
     '''
-    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'    
+    assert isinstance(rtn, RTN), f'rtn must be of type RTN but got {type(rtn)}'
+
     @RTN
     def _f(s, r):
         machine = rtn * _f + EMPTY
         return machine(s, r)
+
     return _f

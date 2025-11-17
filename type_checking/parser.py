@@ -1,13 +1,15 @@
-from rtn import RTN, EMPTY, handle_error, push, cast, addSem, pop, ERROR, replace
-from tokenizer import Tokenizer, TokenSpec, Token
 '''
 example eva program
-  
+
 (begin (var x 10) (+ x 20))
 
 my RTN cannot handle left recursion but can handle right recursion correctly
 (all left recursion can be transformed to right recursion)
 '''
+
+from rtn import EMPTY, RTN, addSem, cast, handle_error, pop, push
+from tokenizer import Tokenizer, TokenSpec
+
 
 def token_rtn(token_name):
 
@@ -19,29 +21,36 @@ def token_rtn(token_name):
 
     return RTN(_f)
 
+
 class Parser:
 
     @classmethod
     def get_token_spec(cls) -> list[tuple[str, str]]:
-        raise NotImplementedError('Subclasses must implement get_token_spec method')
+        raise NotImplementedError(
+            'Subclasses must implement get_token_spec method')
 
     @classmethod
     def get_grammar_rtn(cls, rtn_name: str) -> RTN:
-        raise NotImplementedError('Subclasses must implement get_grammar_rtn method')
+        raise NotImplementedError(
+            'Subclasses must implement get_grammar_rtn method')
 
     @classmethod
     def parse(cls, src: str, rtn_name: str | None = None):
         rtn = cls.get_grammar_rtn(rtn_name)
-            
-        tokenizer = Tokenizer([TokenSpec(name, pattern) for name, pattern in cls.get_token_spec()])
+
+        tokenizer = Tokenizer([
+            TokenSpec(name, pattern) for name, pattern in cls.get_token_spec()
+        ])
         tokens = list(tokenizer.tokenize(src))
         s, r = rtn(tokens, [])
-        if (s, r) == ERROR or s != [] or len(r) == 0:
-            raise SyntaxError(f'Parsing error:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}')
+        if s is None or s != [] or len(r) == 0:
+            raise SyntaxError(
+                f'Parsing error:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}'
+            )
         return r.pop()
-    
-class EvaParser(Parser):
 
+
+class EvaParser(Parser):
     '''
     example eva program
 
@@ -57,22 +66,22 @@ class EvaParser(Parser):
     >>> EvaParser.parse('(begin (var x 10) (+ x 2))')
     ['begin', ['var', 'x', 10.0], ['+', 'x', 2.0]]
     '''
-    
+
     @classmethod
     def get_token_spec(cls) -> list[tuple[str, str]]:
         return [
-            ('', r'#.*'),     # Comment (ignored)
-            ('', r'\s+'),     # Skip over spaces and tabs
-            ('NUMBER',   r'\d+(\.\d*)?'),  # Integer or decimal number
-            ('STRING',   r'"[^"\\]*"'),  # String literal
+            ('', r'#.*'),  # Comment (ignored)
+            ('', r'\s+'),  # Skip over spaces and tabs
+            ('NUMBER', r'\d+(\.\d*)?'),  # Integer or decimal number
+            ('STRING', r'"[^"\\]*"'),  # String literal
             # symbol: word or + - * / = < >
-            ('SYMBOL',   r'[\w\+\-\*\/=<>!,]+'),    # Identifiers
-            ('LPAREN',   r'\('),           # Left Parenthesis
-            ('RPAREN',   r'\)'),           # Right Parenthesis
+            ('SYMBOL', r'[\w\+\-\*\/=<>!,]+'),  # Identifiers
+            ('LPAREN', r'\('),  # Left Parenthesis
+            ('RPAREN', r'\)'),  # Right Parenthesis
             # '[1, 2, 3]' some native list syntax
-            ('LBRACKET', r'\['),           # Left Bracket
-            ('RBRACKET', r'\]'),           # Right Bracket
-            ]
+            ('LBRACKET', r'\['),  # Left Bracket
+            ('RBRACKET', r'\]'),  # Right Bracket
+        ]
 
     @classmethod
     def get_grammar_rtn(cls, rtn_name: str | None = None) -> RTN:
@@ -95,9 +104,9 @@ class EvaParser(Parser):
         List = LPAREN * ListEntries * RPAREN
         Exp = Atom + List
 
-        if not rtn_name: 
+        if not rtn_name:
             return Exp
-        
+
         if rtn_name in locals():
             ret = locals()[rtn_name]
             assert isinstance(ret, RTN), f'{rtn_name} is not of type RTN'
@@ -105,16 +114,17 @@ class EvaParser(Parser):
 
         raise ValueError(f'No such rtn: {rtn_name}')
 
+
 class EvaFunctionStringParser(Parser):
     '''
     A parser for eva function from string
-      
+
     Fn[(number, number) -> number]
     The grammar is as follows:
 
         ATOM := 'number' | 'string' | 'boolean'
         FType := 'Fn[' '(' Types ')' '->' Type ']'
-        Types := Type ',' Types | Type | ε      
+        Types := Type ',' Types | Type | ε
         Type := ATOM | FType
 
 
@@ -158,11 +168,12 @@ class EvaFunctionStringParser(Parser):
         @RTN
         def FType(s, r):
             machine = FN * LBRACKET * LPAREN * Types * RPAREN * ARROW * Type * RBRACKET
-            machine = addSem(machine,
-                             lambda r: r[:-2] + [{'name': 'Fn',
-                                                  'args': r[-2],
-                                                  'return_type': r[-1]}
-                                                 ])
+            machine = addSem(
+                machine, lambda r: r[:-2] + [{
+                    'name': 'Fn',
+                    'args': r[-2],
+                    'return_type': r[-1]
+                }])
             return machine(s, r)
 
         @RTN
@@ -176,27 +187,27 @@ class EvaFunctionStringParser(Parser):
 
         if not rtn_name:
             return FType
-        
+
         if rtn_name in locals():
             ret = locals()[rtn_name]
             assert isinstance(ret, RTN), f'{rtn_name} is not of type RTN'
             return ret
 
         raise ValueError(f'No such rtn: {rtn_name}')
-    
+
+
 def main():
     # example using NUMBER
     # print(Atom([Token('NUMBER', '10')], []))
     # tokens = list(tokenizer.tokenize('(a b c)'))
 
-    src = '(begin (var x 10) (+ x 2)) # this is a comment\n'
+    # src = '(begin (var x 10) (+ x 2)) # this is a comment\n'
+    src = '('
     print('Source:', src)
 
     result = EvaParser.parse(src)
     print('Parsed result:', result)
-    
-    
+
+
 if __name__ == '__main__':
     main()
-    
-
