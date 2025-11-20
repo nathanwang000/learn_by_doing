@@ -300,8 +300,26 @@ class EvaTC:
 
         # function definition: e.g., (def sq ((x number)) -> number (* x x))
         if self._isOperand('def', exp):
-            self._checkArity(exp, 5)
-            _, fn_name, param_list, return_arrow, return_type_str, fn_body = exp
+            fn_name = exp[1]
+            param_list = exp[2]
+            return_arrow = exp[3]
+            fn_body = exp[-1]
+
+            # return type string may be multiple tokens (e.g., Fn[(number,string) -> number])
+            # the above will be passed in as ['Fn', '[', ['number', ',', 'string'], '->', 'number', ']'
+            def exp2str(tokens: list | str):
+                if isinstance(tokens, list):
+                    ret = " ".join([exp2str(t) for t in tokens])
+                    return '(' + ret + ')'
+                elif isinstance(tokens, str):
+                    return tokens
+
+                raise NotImplementedError(f'Unsupported token type: {tokens}')
+
+            return_type_str = exp2str(exp[4:-1])[1:-1] # remove outer parentheses
+            # print(exp[4:-1])
+            # print('return_type_str:', return_type_str)
+
             if return_arrow != '->':
                 raise Exception(f'Syntax error: expected "->" in function definition "{exp}"')
             return env.define(fn_name, self._tcFunction(param_list, return_type_str, fn_body, env))
@@ -541,6 +559,28 @@ if __name__ == '__main__':
          '''
            (math.sin 3.14)
            ''', Type.number)
+
+    # test function closure
+    test(eva,
+         '''
+           (def makeAdder ((x number)) -> Fn[(number) -> number]
+               (def adder ((y number)) -> number (+ x y))
+           )
+           (var add5 (makeAdder 5))
+         ''', Type.fromString('Fn[(number) -> number]')
+         )
+
+    # test having a function returning a function of 2 arguments: not currying
+    test(eva,
+         '''
+           (def makeAdder2 ((x number)) -> Fn[(number, number) -> number]
+               (def adder2 ((y number) (z number)) -> number (+ x (+ y z))
+               )
+           )
+           (var add10 (makeAdder2 10))
+         ''', Type.fromString('Fn[(number, number) -> number]')
+         )
+    
     
     # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 

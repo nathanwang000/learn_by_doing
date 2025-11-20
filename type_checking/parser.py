@@ -11,11 +11,21 @@ from rtn import EMPTY, RTN, addSem, cast, handle_error, pop, push
 from tokenizer import Tokenizer, TokenSpec
 
 
-def token_rtn(token_name):
+def token_rtn(token_name: str):
 
     @handle_error(f'token_rtn({token_name})')
     def _f(s, r):
         if s and s[0].type == token_name:
+            r = r + [s[0].value]
+            return s[1:], r
+
+    return RTN(_f)
+
+def token_value_rtn(token_value: str):
+
+    @handle_error(f'token_value_rtn({token_value})')
+    def _f(s, r):
+        if s and s[0].value == token_value:
             r = r + [s[0].value]
             return s[1:], r
 
@@ -45,7 +55,7 @@ class Parser:
         s, r = rtn(tokens, [])
         if s is None or s != [] or len(r) == 0:
             raise SyntaxError(
-                f'Parsing error in parsing {[_c.value for _c in tokens]}:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}'
+                f'Parsing error in {cls} when parsing {[_c.value for _c in tokens]}:\nremaining tokens = {[_c.value for _c in s] if s else s}\nsemantc stack = {r}'
             )
         return r.pop()
 
@@ -65,6 +75,9 @@ class EvaParser(Parser):
 
     >>> EvaParser.parse('(begin (var x 10) (+ x 2))')
     ['begin', ['var', 'x', 10.0], ['+', 'x', 2.0]]
+      
+    >>> EvaParser.parse('(begin (def add1 ((x number)) -> Fn[(number) -> number] (+ x 1)))')
+    ['begin', ['def', 'add1', [['x', 'number']], '->', 'Fn', '[', ['number'], '->', 'number', ']', ['+', 'x', 1.0]]]
     '''
 
     @classmethod
@@ -75,12 +88,9 @@ class EvaParser(Parser):
             ('NUMBER', r'\d+(\.\d*)?'),  # Integer or decimal number
             ('STRING', r'"[^"\\]*"'),  # String literal
             # symbol: word or + - * / = < >
-            ('SYMBOL', r'[\w\+\-\*\/=<>!,\.]+'),  # Identifiers
+            ('SYMBOL', r'\[|\]|[\w\+\-\*\/=<>!,\.]+'),  # Identifiers
             ('LPAREN', r'\('),  # Left Parenthesis
             ('RPAREN', r'\)'),  # Right Parenthesis
-            # '[1, 2, 3]' some native list syntax
-            ('LBRACKET', r'\['),  # Left Bracket
-            ('RBRACKET', r'\]'),  # Right Bracket
         ]
 
     @classmethod
@@ -157,9 +167,9 @@ class EvaFunctionStringParser(Parser):
     @classmethod
     def get_grammar_rtn(cls, rtn_name: str | None = None) -> RTN:
         ATOM = token_rtn('ATOM')
-        FN = pop(token_rtn('FN'))
-        ARROW = pop(token_rtn('ARROW'))
-        COMMA = pop(token_rtn('COMMA'))
+        FN = pop(token_value_rtn('Fn'))
+        ARROW = pop(token_value_rtn('->'))
+        COMMA = pop(token_value_rtn(','))
         LPAREN = pop(token_rtn('LPAREN'))
         RPAREN = pop(token_rtn('RPAREN'))
         LBRACKET = pop(token_rtn('LBRACKET'))
