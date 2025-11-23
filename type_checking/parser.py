@@ -129,6 +129,12 @@ class EvaFunctionStringParser(Parser):
     '''
     A parser for eva function from string
 
+    what about the notation (Fn (number string) -> boolean)?
+      this requires minimal parsing
+      this also kind of make sense for a type constructor
+
+    Below the experimental notation is used:
+      
     Fn[(number, number) -> number]
     The grammar is as follows:
 
