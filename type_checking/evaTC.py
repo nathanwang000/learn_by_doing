@@ -1,15 +1,24 @@
 import re
 import parser
+import union_find
+
+AliasUnionFind = union_find.UnionFind()
 
 class Type:
     '''
     represents a type in eva language 
     '''
-    def __init__(self, name):
+    def __init__(self, name: str):
+        '''
+        initialize a Type instance
+        '''
         self.name = name
 
     def __eq__(self, other):
-        return isinstance(other, Type) and self.name == other.name
+        if not isinstance(other, Type):
+            return False
+
+        return AliasUnionFind.find(self.name) == AliasUnionFind.find(other.name)
 
     def __repr__(self):
         return self.name
@@ -39,18 +48,18 @@ class FunctionType(Type):
     Fn[(number, number) -> number]
     '''
     def __init__(self, param_types: list[Type], return_type: Type):
-        super().__init__(name=None)
         self.param_types = param_types
         self.return_type = return_type
-        self.name = str(self)
+        super().__init__(name=str(self))
 
     def __eq__(self, other):
         return isinstance(other, FunctionType) and self.name == other.name
 
     def __repr__(self):
-        if self.name: return self.name
-        param_types_str = ', '.join([str(t) for t in self.param_types])
-        return f'Fn[({param_types_str}) -> {self.return_type}]'
+        if not hasattr(self, "name"):
+            param_types_str = ', '.join([str(t) for t in self.param_types])
+            self.name = f'Fn[({param_types_str}) -> {self.return_type}]'
+        return self.name
 
     @classmethod
     def fromString(cls, typeString: str):
@@ -84,45 +93,23 @@ class FunctionType(Type):
             
         return str2type(exp)
     
-    @classmethod
-    def fromStringSimple(cls, typeString: str):
-        '''
-        parse a function type string and return a FunctionType instance
+class Alias(Type):
+    '''
+    represents a type alias in eva language 
+    e.g., type MyNumber = number
+    '''
+    def __init__(self, alias_name: str, actual_type: Type):
+        super().__init__(name=alias_name)
+        self.actual_type = actual_type
+        AliasUnionFind.union(alias_name, actual_type.name)
 
-        >>> FunctionType.fromStringSimple('Fn[(number, number) -> number]')
-        Fn[(number, number) -> number]
-
-        nested function type: not supported for simple
-        the parser can be
-        Type := 'number' | 'string' | 'boolean' | FType
-        FType := 'Fn[' '(' Types ')' '->' Type ']'
-        Types := Type ',' Types | Type | ε
-
-        e.g., cannot handle FunctionType.fromString('Fn[(number, Fn[(number) -> number]) -> number]')
-        '''
-        pattern = r'^Fn\[\((.*?)\)\W*->\W*(.*?)\]$'
-        match = re.match(pattern, typeString)
-        if not match:
-            raise Exception(f'Invalid function type string: "{typeString}"')
-
-        param_types_str = match.group(1)
-        return_type_str = match.group(2)
-
-        param_types = []
-        if param_types_str.strip():
-            param_type_names = [t.strip() for t in param_types_str.split(',')]
-            for type_name in param_type_names:
-                param_types.append(Type.fromString(type_name))
-
-        return_type = Type.fromString(return_type_str.strip())
-
-        return cls(param_types, return_type)
-
+    
 # built-in types
 Type.number = Type('number')
 Type.string = Type('string')
 Type.boolean = Type('boolean')
 Type.Function = FunctionType
+Type.Alias = Alias
 
 class TypeEnvironment:
     '''
@@ -204,6 +191,17 @@ class EvaTC:
         if self._isBoolean(exp):
             return Type.boolean
 
+        # return type string may be multiple tokens (e.g., Fn[(number,string) -> number])
+        # the above will be passed in as ['Fn', '[', ['number', ',', 'string'], '->', 'number', ']'
+        def exp2str(tokens: list | str):
+            if isinstance(tokens, list):
+                ret = " ".join([exp2str(t) for t in tokens])
+                return '(' + ret + ')'
+            elif isinstance(tokens, str):
+                return tokens
+
+            raise NotImplementedError(f'Unsupported token type: {tokens}')
+        
         # math operations
         if self._isBinaryOp(exp):
             return self._binary(exp, env)
@@ -226,6 +224,17 @@ class EvaTC:
             var_type = self.tc(var_value, env)
             return env.define(var_name, var_type)
 
+        # alias definition: e.g., (type int number)
+        if self._isOperand('type', exp):
+            # second type could be compound like Fn[(number) -> number]
+            alias_name = exp[1]
+            # assert alias is not already defined
+            assert not hasattr(Type, alias_name), f'Type alias "{alias_name}" is already defined.'
+            actual_type_str = exp2str(exp[2:])[1:-1]
+            actual_type = Type.fromString(actual_type_str)
+            setattr(Type, alias_name, Alias(alias_name, actual_type))
+            return getattr(Type, alias_name)
+        
         # variable access
         if self._isVariableName(exp):
             return env.lookup(exp)
@@ -298,36 +307,42 @@ class EvaTC:
             self._expect(t2, t1, exp[2], exp)
             return Type.boolean
 
+        # lambda function: e.g., (lambda ((x number)) -> number (* x x))
+        if self._isOperand('lambda', exp):
+            param_list = exp[1]
+            return_arrow = exp[2]
+            fn_body = exp[-1]
+
+            # the course doesn't need exp2str b/c no whitespace in type strings
+            # so they are treated as a single token Fn<number<number,number>>
+            # mine notation is more flexible but requires re-parsing
+            return_type_str = exp2str(exp[3:-1])[1:-1]
+            if return_arrow != '->':
+                raise Exception(f'Syntax error: expected "->" in lambda function "{exp}"')
+            return self._tcFunction(param_list, return_type_str, fn_body, env)
+        
         # function definition: e.g., (def sq ((x number)) -> number (* x x))
+        # syntactic sugar for (var sq (lambda ((x number)) -> number (* x x)))
         if self._isOperand('def', exp):
             fn_name = exp[1]
             param_list = exp[2]
-            return_arrow = exp[3]
-            fn_body = exp[-1]
-
-            # return type string may be multiple tokens (e.g., Fn[(number,string) -> number])
-            # the above will be passed in as ['Fn', '[', ['number', ',', 'string'], '->', 'number', ']'
-            def exp2str(tokens: list | str):
-                if isinstance(tokens, list):
-                    ret = " ".join([exp2str(t) for t in tokens])
-                    return '(' + ret + ')'
-                elif isinstance(tokens, str):
-                    return tokens
-
-                raise NotImplementedError(f'Unsupported token type: {tokens}')
-
+            # rewrite as variable declaration with lambda            
+            new_exp = ['var', fn_name,
+                       ['lambda', param_list] + exp[3:]]
+            
             return_type_str = exp2str(exp[4:-1])[1:-1] # remove outer parentheses
-            # print(exp[4:-1])
-            # print('return_type_str:', return_type_str)
 
-            if return_arrow != '->':
-                raise Exception(f'Syntax error: expected "->" in function definition "{exp}"')
-            return env.define(fn_name, self._tcFunction(param_list, return_type_str, fn_body, env))
+            # need to predefine the function name in env for recursion
+            param_types = [Type.fromString(param[1]) for param in param_list]
+            env.define(fn_name, FunctionType(param_types,
+                                             Type.fromString(return_type_str)))
+            
+            return self.tc(new_exp, env)
 
         # function call: e.g. (sq 2)
         if isinstance(exp, list):
             return self._tcFunctionCall(exp, env)
-        
+
         raise Exception(f'Unknown expression type: "{exp}"')
 
     def _tcFunctionCall(self, exp, env)->Type:
@@ -581,6 +596,52 @@ if __name__ == '__main__':
          ''', Type.fromString('Fn[(number, number) -> number]')
          )
     
+    # recursive function call
+    test(eva,
+         '''
+           (def fact ((n number)) -> number
+               (if (== n 0)
+                   1
+                   (* n (fact (- n 1)))
+               )
+           )
+           (fact 5)
+         ''', Type.fromString('number')
+         )
+    
+    # lambda function
+    test(eva,
+         '''
+           (lambda ((x number)) -> number (* x x))
+         ''', Type.fromString('Fn[(number) -> number]'))
+    test(eva,
+         '''
+           (var square (lambda ((x number)) -> number (* x x)))
+           (square 6)
+         ''', Type.number
+         )
+
+    # immediate invocation of lambda function
+    test(eva,
+         '''
+           ((lambda ((x number)) -> number (* x x)) 7)
+         ''', Type.number
+         )
+
+    # type alias: e.g. (type int number)
+    test(eva,
+         '''
+           (type int number)
+           (type ID int)
+         ''', Type.number
+         )
+
+    # test type alias usage
+    test(eva,
+         '''
+           ((lambda ((x ID)) -> int (* x x)) 10)
+         ''', Type.ID
+         )
     
     # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 
