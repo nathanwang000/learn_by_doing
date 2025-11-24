@@ -20,9 +20,35 @@ class Type:
         if not isinstance(other, Type):
             return False
 
-        if AliasUnionFind.find(self.name) == AliasUnionFind.find(other.name):
+        # alias
+        left_str = AliasUnionFind.find(self.name)
+        right_str = AliasUnionFind.find(other.name)
+        if left_str == right_str:
             return True
 
+        # normalize to Type instances
+        self = Type.fromString(left_str)
+        other = Type.fromString(right_str)
+
+        # union type
+        if isinstance(self, UnionType):
+            if isinstance(other, UnionType):
+                # two union types are equal if they have the same member types
+                if len(self.member_types) != len(other.member_types):
+                    return False
+                for member_type in self.member_types:
+                    if member_type not in other.member_types:
+                        return False
+                return True
+            else:
+                # subtype
+                for member_type in self.member_types:
+                    if member_type == other:
+                        return True
+                return False
+
+        if isinstance(other, UnionType): return other == self
+        
         # inheritance
         if isinstance(other, ClassType) and isinstance(self, ClassType):
             return other == self.superclass
@@ -41,14 +67,19 @@ class Type:
         number
         '''
         if isinstance(typeString, list):
-            # parse the list as function type
-            return FunctionType.fromString(typeString)
+            delegation = {'Fn': FunctionType,
+                'or': UnionType}.get(typeString[0], None)
+            if delegation is not None:
+                return delegation.fromString(typeString)
+            raise Exception(f'Unknown type: "{typeString}"')
+            
         elif isinstance(typeString, str):
             if hasattr(cls, typeString):
                 return getattr(cls, typeString)
             if typeString.startswith('(Fn'):
-                # delegate to FunctionType fromString parser
                 return FunctionType.fromString(typeString)
+            if typeString.startswith('(or'):
+                return UnionType.fromString(typeString)
 
         raise Exception(f'Unknown type: "{typeString}"')
 
@@ -102,7 +133,7 @@ class FunctionType(Type):
 class AliasType(Type):
     '''
     represents a type alias in eva language
-    e.g., (type int number) # create an alias for the number type
+    e.g., (alias int number) # create an alias for the number type
     '''
 
     def __init__(self, alias_name: str, actual_type: Type):
@@ -150,7 +181,42 @@ class ClassType(Type):
     def getField(self, name: str):
         return self.env.lookup(name)
 
+class UnionType(Type):
+    '''
+    represents a union type in eva language
+    e.g., (or number string)
 
+    >>> UnionType([Type.number, Type.string])
+    (or number string)
+    '''
+
+    def __init__(self, member_types: list[Type]):
+        self.member_types = member_types
+        super().__init__(name=str(self))
+
+    def __repr__(self):
+        member_types_str = ' '.join([str(t) for t in self.member_types])
+        return f'(or {member_types_str})'
+
+    @classmethod
+    def fromString(cls, typeString: str | list):
+        '''
+        parse a union type string and return a UnionType instance
+
+        >>> UnionType.fromString('(or number string)')
+        (or number string)
+        '''
+        if isinstance(typeString, str):
+            exp = parser.EvaParser.parse(typeString)
+        elif isinstance(typeString, list):
+            exp = typeString
+        else:
+            raise Exception(f'Invalid type string: "{typeString}"')
+
+        assert exp[0] == 'or', f'Invalid union type string: "{typeString}"'
+        member_types = [Type.fromString(t) for t in exp[1:]]
+        return cls(member_types)
+    
 # built-in types
 Type.number = Type('number')
 Type.string = Type('string')
@@ -265,13 +331,19 @@ class EvaTC:
                 expected_var_type = Type.fromString(var_name[1])
                 var_type = self.tc(var_value, env)
                 self._expect(var_type, expected_var_type, var_value, exp)
-                return env.define(actual_var_name, var_type)
+                # use expected_var_type because var_type may be a subtype
+                return env.define(actual_var_name, expected_var_type)
 
             var_type = self.tc(var_value, env)
             return env.define(var_name, var_type)
 
-        # alias definition: e.g., (type int number)
-        if self._isOperand('type', exp):
+        # union type: (or type1 type2 ... typeN)
+        if self._isOperand('or', exp):
+            member_types = [Type.fromString(t) for t in exp[1:]]
+            return UnionType(member_types)
+        
+        # alias definition: e.g., (alias int number)
+        if self._isOperand('alias', exp):
             self._checkArity(exp, 2)
             alias_name, actual_type_str = exp[1:]
             # assert alias is not already defined
@@ -704,11 +776,11 @@ if __name__ == '__main__':
            ((lambda ((x number)) -> number (* x x)) 7)
          ''', Type.number)
 
-    # type alias: e.g. (type int number)
+    # type alias: e.g. (alias int number)
     test(
         eva, '''
-           (type int number)
-           (type ID int)
+           (alias int number)
+           (alias ID int)
          ''', Type.number)
 
     # test type alias usage
@@ -760,6 +832,17 @@ if __name__ == '__main__':
          )
 
 
+    # Union type: (alias NumOrStr (or number string)
+    exec(
+        eva, '''
+           (alias NumOrStr (or number string))
+         ''')
+    test(eva, '''
+           (var (x NumOrStr) 10)
+         ''', Type.NumOrStr)  # pylint: disable=E1101
+    test(eva, "x", Type.number)
+    test(eva, "x", Type.string)
+    
     print(eva.global_env.env['Person'].env)
     # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 
