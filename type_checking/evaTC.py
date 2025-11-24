@@ -147,7 +147,7 @@ class ClassType(Type):
         self.env = TypeEnvironment({},
             parent=superclass.env if superclass != Type.null else None)
 
-    def getField(name: str):
+    def getField(self, name: str):
         return self.env.lookup(name)
 
 
@@ -296,6 +296,31 @@ class EvaTC:
             self._tcBlock(body, class_type.env)
             return class_type
 
+        # instance from a class
+        # e.g. (new Person arg1 arg2)
+        if self._isOperand('new', exp):
+            name = exp[1]
+            args = exp[2:]
+            arg_types = [self.tc(arg, env) for arg in args]
+            class_type = env.lookup(name)
+            # should match constructor of the class
+            constructor = class_type.getField('constructor')
+            arg_types = [self.tc(arg, env) for arg in args]
+            return self._tcFunctionCall(constructor,
+                                        [class_type] + arg_types, exp, env)
+            
+        # class variable look up
+        # usually obj.x, but in eva (prop obj x)
+        if self._isOperand('prop', exp):
+            self._checkArity(exp, 2)
+            obj, x = exp[1:]
+            # get obj type from the environment
+            obj_type = env.lookup(obj)
+            assert isinstance(obj_type, Type.Class),\
+              f"self need to be class type, got {obj_type}"
+            # see if x is in obj's environment
+            return obj_type.getField(x)
+        
         # variable access
         if self._isVariableName(exp):
             return env.lookup(exp)
@@ -396,20 +421,21 @@ class EvaTC:
 
         # function call: e.g. (sq 2)
         if isinstance(exp, list):
-            return self._tcFunctionCall(exp, env)
+            fn_type = self.tc(exp[0], env)
+            arg_types = [self.tc(arg, env) for arg in exp[1:]]
+            return self._tcFunctionCall(fn_type, arg_types, exp, env)
 
         raise Exception(f'Unknown expression type: "{exp}"')
 
-    def _tcFunctionCall(self, exp, env) -> Type:
-        fn_type = self.tc(exp[0], env)
+    def _tcFunctionCall(self, fn_type: FunctionType,
+                        arg_types: list[Type], exp, env) -> Type:
         if not isinstance(fn_type, FunctionType):
             raise Exception(
                 f'Type error: expected a function type for "{exp[0]}", but got "{fn_type}" in expression "{exp}"'
             )
-        self._checkArity(exp, len(fn_type.param_types))
+        assert len(arg_types) == len(fn_type.param_types), f"arg length mismatch in args_types={arg_types} for function {fn_type} with expected_arg_types={fn_type.param_types}"
         # check arg types
         args = exp[1:]
-        arg_types = [self.tc(arg, env) for arg in args]
         for actual_type, expected_type, arg in zip(arg_types,
                                                    fn_type.param_types, args):
             self._expect(actual_type, expected_type, arg, exp)
@@ -690,27 +716,30 @@ if __name__ == '__main__':
          '''
          (class Person null
            (begin
+             (var (name string) "")
+             (var (age int) 0)
              (def constructor ((self Person) (name string) (age number)) -> Person
                (begin
-                 # (set (prop self name) name)
+                 (set (prop self name) name)
                  # (set (prop self age) age)
                  self
                )
              )
 
              (def greet ((self Person)) -> string
-                # ( + "Hello, my name is " (prop self name) )
-                "Hello, my name is John"
+                ( + "Hello, my name is " (prop self name) )
              )
            )
          )
 
-         1
+         (var p1 (new Person "John" 5))
+         ((prop p1 greet) p1)
          ''',
-         Type.int
+         Type.string
          )
 
-    
+
+    print(eva.global_env.env['Person'].env)
     # print(parseEva.parse('(begin (def sq (x number) (* x x)) (sq 5))'))
 
     # introduce a list expression
