@@ -177,6 +177,7 @@ class TypeEnvironment:
         return var_type
 
     def lookup(self, varname: str) -> Type:
+        assert isinstance(varname, str), f"Cannot lookup var={varname}: not str"
         if varname in self.env:
             return self.env[varname]
         elif self.parent is not None:
@@ -302,7 +303,7 @@ class EvaTC:
             name = exp[1]
             args = exp[2:]
             arg_types = [self.tc(arg, env) for arg in args]
-            class_type = env.lookup(name)
+            class_type = self.tc(name, env)
             # should match constructor of the class
             constructor = class_type.getField('constructor')
             arg_types = [self.tc(arg, env) for arg in args]
@@ -315,12 +316,19 @@ class EvaTC:
             self._checkArity(exp, 2)
             obj, x = exp[1:]
             # get obj type from the environment
-            obj_type = env.lookup(obj)
+            obj_type = self.tc(obj, env)
             assert isinstance(obj_type, Type.Class),\
-              f"self need to be class type, got {obj_type}"
+              f"obj need to be class type, got {obj_type} in {exp}"
             # see if x is in obj's environment
             return obj_type.getField(x)
-        
+
+        # super class call: (super <classname>)
+        if self._isOperand('super', exp):
+            self._checkArity(exp, 1)
+            class_name = exp[1]
+            class_type = self.tc(class_name)
+            return class_type.superclass
+            
         # variable access
         if self._isVariableName(exp):
             return env.lookup(exp)
@@ -549,7 +557,7 @@ def exec(eva, exp):
 
 def test(eva, exp, expected_type):
     inferred_type = exec(eva, exp)
-    assert inferred_type == expected_type, f'Expected {expected_type}, but got {inferred_type} for expression {exp}'
+    assert inferred_type == expected_type, f'Expected `{expected_type}`, but got `{inferred_type}` for expression {exp}'
 
 
 if __name__ == '__main__':
@@ -721,7 +729,7 @@ if __name__ == '__main__':
              (def constructor ((self Person) (name string) (age number)) -> Person
                (begin
                  (set (prop self name) name)
-                 # (set (prop self age) age)
+                 (set (prop self age) age)
                  self
                )
              )
@@ -732,6 +740,19 @@ if __name__ == '__main__':
            )
          )
 
+         (class Student Person
+           (begin
+              (var (major string) "")
+              (def constructor ((self Student) (name string) (age number) (major string)) -> Student
+                 (begin
+                    ((prop (super Student) constructor) self name age)
+                    (set (prop self major) major)
+                    self
+                 )
+              )
+
+           )
+         )
          (var p1 (new Person "John" 5))
          ((prop p1 greet) p1)
          ''',
