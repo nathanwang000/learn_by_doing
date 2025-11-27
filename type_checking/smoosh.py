@@ -77,4 +77,14 @@ class SmooshTC:
         (mkevidence (-> (s: str) (evidence s)))
         )
 
+    # it should also support constraints on types, like only allowing certain types
+    # to be created if certain conditions are met.
+    (inductive positive_nat (-> Type)
+        (mkposnat (-> (n: nat) (constraint (> 0 n) (positive_nat))))
+        )
+
+    The way to type check the above roughly follows:
+    1. Parse the code into an AST
+    2. Build a context of types and constructors (save them in a dictionary of variable to type; for closure, also point to parent context)
+    3. For each expression, check its type according to the context (like for function types, just make sure the argument types match and return type matches; for inductive types, make sure the constructors are valid; for constraints, make sure the constraints are satisfied and then the resulting type is valid; for general Pi types, that is for all x : A, B(x), make sure A is a type and B(x) is a type for all x in A)
     '''
