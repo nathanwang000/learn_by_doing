@@ -61,6 +61,75 @@ def parse(tokens: list[str]) -> str | list[str]:
         raise SyntaxError(f"Unexpected tokens after parsing: {tokens[token_pos:]}")
     return ast
 
+class Type:
+    '''
+    A simple representation of types in smoosh language.
+    '''
+    def __init__(self, name: str):
+        self.name = name
+
+    def __repr__(self):
+        return f'Type({self.name})'
+
+    @classmethod
+    def function_type(cls, arg_type: 'Type', return_type: 'Type') -> 'Type':
+        return cls(f'({arg_type} -> {return_type})')
+
+    @classmethod
+    def inductive_type(cls, name: str, constructors: dict[str, 'Type']) -> 'Type':
+        return cls(f'Inductive {name} with constructors {constructors}')
+
+    @classmethod
+    def pi_type(cls, var_name: str, var_type: 'Type', return_type: 'Type') -> 'Type':
+        return cls(f'Pi({var_name}: {var_type}) -> {return_type}')
+
+    @classmethod
+    def constraint_type(cls, base_type: 'Type', constraint: str) -> 'Type':
+        return cls(f'Constraint({constraint}) on {base_type}')
+
+    @classmethod
+    def _compute_from_type(cls, type_obj: 'Type') -> 'Type':
+        '''
+        Create a Type from another Type object.
+        For example, if the contraint type can be applied, it will try to
+        evaluate the constraint and return the resulting type.
+        '''
+        pass
+
+    @classmethod
+    def _compute_from_string(cls, type_str: str) -> 'Type':
+        '''
+        Create a Type from a string representation.
+        This is a placeholder implementation and should be expanded to handle
+        all the type constructs in smoosh language.
+        '''
+        tokens = tokenize(type_str)
+        return cls._compute_from_tokens(tokens)
+    
+    @classmethod
+    def _compute_from_tokens(cls, tokens: list[str]) -> 'Type':
+        '''
+        Create a Type from a list of tokens.
+        This is a placeholder implementation and should be expanded to handle
+        all the type constructs in smoosh language.
+        '''
+        if tokens[0] == '->':
+            arg_type = cls.from_tokens(tokens[1:2])
+            return_type = cls.from_tokens(tokens[2:3])
+            return cls.function_type(arg_type, return_type)
+        elif tokens[0] == 'inductive':
+            name = tokens[1]
+            constructors = {}
+            for i in range(2, len(tokens), 2):
+                ctor_name = tokens[i]
+                ctor_type = cls.from_tokens(tokens[i+1:i+2])
+                constructors[ctor_name] = ctor_type
+            return cls.inductive_type(name, constructors)
+        # Add more parsing logic for constraints and pi types as needed
+        else:
+            return cls(tokens[0])
+
+    
 class SmooshTC:
 
     '''
